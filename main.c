@@ -56,26 +56,6 @@ int main(int argc, char **argv) {
     return EXIT_SUCCESS;
 }
 
-typedef struct array_struct {
-    int size;
-    int start_point;
-    int end_point;
-    float* array;
-} array_struct;
-
-// pointer to function since it's being used as a callback function and hence need to use pointers
-void* randomise_array(void *arg) {
-    array_struct *data = (array_struct *)arg;
-
-    for (int i = 0; i < data->size; i++){
-        data->array[i] = (float) rand();
-    }
-
-    printf("hello from thr_func, thread size: %d\n", data->size);
-
-    pthread_exit(NULL); // thread termination function with NULL being the argument returned from function
-}
-
 // global arrays
 float** A;
 float** B;
@@ -103,11 +83,89 @@ void init_arrays(int N, int M, int K) {
 }
 
 
+// master thread gets number of threads from user
+void* get_number_of_threads(void* threads) {
+    int* threads_amount = (int *) threads; // must cast from void*
+    printf("Enter # of threads: \n");
+    scanf("%d", threads_amount);
+    pthread_exit(threads_amount); //return threads_amount
+}
 
-void matrix_multiplication(){
+// struct for individual array A and B
+typedef struct array_struct {
+    int start_point;
+    int end_point;
+    int chunk;
+    int rows;
+    int columns;
+    float** array;
+} array_struct;
 
-    int N, M, K; //declared N, M, and K
-    int threads, rc; // pthread response int
+// struct for both arrays
+typedef struct arrays_struct {
+    array_struct A;
+    array_struct B;
+    int threads;
+} arrays_struct;
+
+// struct for containing worker meta details
+typedef struct worker_meta_data {
+    float** worker_A;
+    float** worker_B;
+    int sum;
+    int K;
+    int chunk;
+    int index;
+} worker_meta_data;
+
+void* matrix_mult(void* workers_meta_arg) {
+    worker_meta_data* workers_meta = (worker_meta_data*) workers_meta_arg;
+    int start = workers_meta->chunk;
+    int end = start + workers_meta->chunk;
+    int K = workers_meta->K;
+    float** A = workers_meta->worker_A;
+    float** B = workers_meta->worker_B;
+//    printf("start: %d end: %d \n", start, end);
+//    printf("Hey, I'm Worker#%d\n", workers_meta->index);
+    for (int i = 0; i < K; i++) {
+        for (int j = start; j < end; j++) {
+            printf("B[%d][%d]: %f\n", i, j, B[i][j]);
+        }
+    }
+    pthread_exit(NULL);
+}
+
+void* thread_pool_allocate(void* arrays_arg) {
+    arrays_struct* arrays = (arrays_struct *) arrays_arg;
+    int threads = arrays->threads;
+
+    // create threads amount of pthreads
+    pthread_t worker_threads[threads];
+    worker_meta_data worker_meta[threads];
+    int N = arrays->B.columns;
+    int M = arrays->A.rows;
+    int chunk = N/threads;
+    for (int i = 0; i < N; i++) { // t =< N
+        worker_meta[i].index = i;
+        worker_meta[i].K = arrays->A.columns;
+        worker_meta[i].chunk = chunk;
+        worker_meta[i].worker_A = arrays->A.array;
+        worker_meta[i].worker_B = arrays->B.array;
+        if (i % chunk == 0) {
+            pthread_create(&worker_threads[i], NULL, matrix_mult, &worker_meta[i]);
+        }
+    }
+    for (int i = 0; i < N; i++) {
+        if (i % chunk == 0) {
+            pthread_join(worker_threads[i], NULL);
+        }
+    }
+    pthread_exit(NULL);
+}
+
+void matrix_multiplication() {
+
+    int N, M, K, thread_flag, threads; //declared N, M, and K
 
     printf("Enter N, M, and K: ");
     // needs the address of N because it needs to change the value of N.
@@ -119,10 +177,36 @@ void matrix_multiplication(){
     init_arrays(N, M, K);
 
     // get number of threads from user
-    printf("Enter # of threads: \n");
-    scanf("%d", &threads);
-    printf("%d threads\n", threads);
+    pthread_t boss_thread; // reference to boss thread
+    if ((thread_flag = pthread_create(&boss_thread, NULL, get_number_of_threads, &threads))) {
+        fprintf(stderr, "error on pthread creation -- flag: %d\n", thread_flag);
+    }
+    pthread_join(boss_thread, NULL);
+    if (threads > N) { return; } // must be of the form threads <= N
+    printf("Boss thread: You've chosen %d threads\n", threads);
 
+    /* create threads and calculate matrix */
+    // calculate block start and end points
+    array_struct A_struct;
+    array_struct B_struct;
+
+    A_struct.chunk = M * K / threads;
+    A_struct.array = A;
+    A_struct.rows = M;
+    A_struct.columns = K;
+
+    B_struct.chunk = K * N / threads;
+    B_struct.array = B;
+    B_struct.rows = K;
+    B_struct.columns = N;
+
+    arrays_struct arrays;
+    arrays.A = A_struct;
+    arrays.B = B_struct;
+    arrays.threads = threads;
+
+    pthread_create(&boss_thread, NULL, thread_pool_allocate, &arrays);
+    pthread_join(boss_thread, NULL);
     return;
 
 }

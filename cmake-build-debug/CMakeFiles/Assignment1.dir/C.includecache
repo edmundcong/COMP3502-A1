@@ -9,4 +9,10 @@
 /Users/edmundcong/Documents/Uni/COMP3502-OS_Internals/Assignment1/main.c
 stdio.h
 -
+stdlib.h
+-
+pthread.h
+-
+math.h
+-
 
