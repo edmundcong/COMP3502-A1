@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <time.h>
 #include <math.h>
 
 #define NUM_THREADS 2
@@ -60,6 +61,7 @@ int main(int argc, char **argv) {
 float** A;
 float** B;
 float** C;
+float** C_test;
 
 // function to initialise 3 global arrays with random.
 // void return type can be used since we're operating globally with pointers and hence do not need to return values
@@ -69,7 +71,9 @@ void init_arrays(int N, int M, int K) {
     for (int i = 0; i < M; i++) {
         A[i] = (float *) malloc(K * sizeof(float));
         for (int j = 0; j < K; j++) {
-            A[i][j] =  drand48();
+//            A[i][j] =  drand48();
+            A[i][j] =  i + j;
+
         }
     }
     // init B
@@ -77,7 +81,20 @@ void init_arrays(int N, int M, int K) {
     for (int i = 0; i < K; i++) {
         B[i] = (float *) malloc(N * sizeof(float));
         for (int j = 0; j < N; j++) {
-            B[i][j] =  drand48();
+//            B[i][j] =  drand48();
+            B[i][j] =  i + j;
+
+        }
+    }
+    // init C
+    C = (float**) malloc(M*sizeof(float*));
+    C_test = (float**) malloc(M*sizeof(float*));
+    for (int i = 0; i < M; i++) {
+        C[i] = (float *) malloc(N * sizeof(float));
+        C_test[i] = (float *) malloc(N * sizeof(float));
+        for (int j = 0; j < N; j++) {
+            C[i][j] =  0;
+            C_test[i][j] = 0;
         }
     }
 }
@@ -93,8 +110,6 @@ void* get_number_of_threads(void* threads) {
 
 // struct for individual array A and B
 typedef struct array_struct {
-    int start_point;
-    int end_point;
     int chunk;
     int rows;
     int columns;
@@ -110,26 +125,35 @@ typedef struct arrays_struct {
 
 // struct for containing worker meta details
 typedef struct worker_meta_data {
+    int start;
+    int finish;
     float** worker_A;
     float** worker_B;
+    int flag;
     int sum;
+    int j;
+    int id;
+    int i;
     int K;
+    int M;
     int chunk;
     int index;
 } worker_meta_data;
 
 void* matrix_mult(void* workers_meta_arg) {
     worker_meta_data* workers_meta = (worker_meta_data*) workers_meta_arg;
-    int start = workers_meta->chunk;
-    int end = start + workers_meta->chunk;
+//    int N = workers_meta->N;
     int K = workers_meta->K;
     float** A = workers_meta->worker_A;
     float** B = workers_meta->worker_B;
-//    printf("start: %d end: %d \n", start, end);
-//    printf("Hey, I'm Worker#%d\n", workers_meta->index);
-    for (int i = 0; i < K; i++) {
-        for (int j = start; j < end; j++) {
-            printf("B[%d][%d]: %f\n", i, j, B[i][j]);
+    int M = workers_meta->M;
+    printf("id: %d start: %d and finish: %d\n", workers_meta->id, workers_meta->start, workers_meta->finish);
+    for (int i = workers_meta->start; i < workers_meta->finish; i++) {
+        for (int j = 0; j < M; j++) {
+            for (int k = 0; k < K; k++) {
+                C[i][j] += A[i][k] * B[k][j];
+            }
+            printf("C[%d][%d]: %f\n", i, j, C[i][j]);
         }
     }
     pthread_exit(NULL);
@@ -144,22 +168,31 @@ void* thread_pool_allocate(void* arrays_arg) {
     worker_meta_data worker_meta[threads];
     int N = arrays->B.columns;
     int M = arrays->A.rows;
-    int chunk = N/threads;
-    for (int i = 0; i < N; i++) { // t =< N
-        worker_meta[i].index = i;
-        worker_meta[i].K = arrays->A.columns;
-        worker_meta[i].chunk = chunk;
-        worker_meta[i].worker_A = arrays->A.array;
-        worker_meta[i].worker_B = arrays->B.array;
-        if (i % chunk == 0) {
-            pthread_create(&worker_threads[i], NULL, matrix_mult, &worker_meta[i]);
-        }
+//    int chunk = ceilf(N/threads);
+//    int chunk = 3;
+    int chunk = (N/threads);
+    int counter = 0;
+    for (int i = 0; i < N; i = i+chunk) {
+//        printf("i: %d\n", i);
+        worker_meta[counter].index = i;
+        worker_meta[counter].id = counter;
+        worker_meta[counter].M = M;
+        worker_meta[counter].K = arrays->B.rows;
+        worker_meta[counter].start = counter * chunk;
+        worker_meta[counter].finish = (counter * chunk) + chunk;
+//        printf("i: %d start: %d finish: %d\n", i, worker_meta[counter].start, worker_meta[counter].finish);
+        worker_meta[counter].worker_A = arrays->A.array;
+        worker_meta[counter].worker_B = arrays->B.array;
+        printf("here\n");
+        pthread_create(&worker_threads[counter], NULL, matrix_mult, &worker_meta[counter]);
+        counter++;
     }
-    for (int i = 0; i < N; i++) {
-        if (i % chunk == 0) {
-            pthread_join(worker_threads[i], NULL);
-        }
+    counter = 0;
+    for (int i = 0; i < N; i = i+chunk) {
+        pthread_join(worker_threads[counter], NULL);
+        counter++;
     }
+
     pthread_exit(NULL);
 }
 
@@ -207,6 +240,32 @@ void matrix_multiplication() {
 
     pthread_create(&boss_thread, NULL, thread_pool_allocate, &arrays);
     pthread_join(boss_thread, NULL);
+
+//    for (int j = 0; j < M; j++) {
+//        for (int l = 0; l < K; l++) {
+//            printf("A[%d][%d]: %f\n", j, l, A[j][l]);
+//        }
+//    }
+//    for (int j = 0; j < K; j++) {
+//        for (int l = 0; l < N; l++) {
+//            printf("B[%d][%d]: %f\n", j, l, B[j][l]);
+//        }
+//    }
+//    for (int j = 0; j < M; j++) {
+//        for (int l = 0; l < N; l++) {
+//            printf("C[%d][%d]: %f\n", j, l, C[j][l]);
+//        }
+//    }
+//
+//    for (int m = 0; m < M; m++) {
+//        for (int n = 0; n < N; n++) {
+//            for (int k = 0; k < K; k++){
+//                C_test[m][n] += A[m][k]*B[k][n];
+//            }
+//            printf("C_test[%d][%d]: %f\n", m, n, C_test[m][n]);
+//        }
+//    }
+
     return;
 
 }
