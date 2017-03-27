@@ -13,8 +13,6 @@ stdlib.h
 -
 pthread.h
 -
-time.h
--
-math.h
+sys/time.h
 -
 
