@@ -96,6 +96,7 @@ void* mat_mult_thrds(void* workers_meta_arg) {
     float** A = workers_meta->worker_A;
     float** B = workers_meta->worker_B;
     int M = workers_meta->M;
+    // locality of reference cache optimisation
     for (int i = workers_meta->start; i < workers_meta->finish + 1; i++) {
             for (int k = 0; k < K; k++) {
                 for (int j = 0; j < M; j++) {
