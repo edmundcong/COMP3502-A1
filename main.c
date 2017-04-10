@@ -3,12 +3,6 @@
 #include <pthread.h>
 #include <sys/time.h>
 
-// global arrays
-float** A;
-float** B;
-float** C;
-float** C_test;
-
 // function declaration to avoid C99 implicit declaration warning
 void matrix_multiplication(void);
 
@@ -16,6 +10,12 @@ int main(int argc, char **argv) {
     matrix_multiplication();
     return EXIT_SUCCESS;
 }
+
+// global arrays
+float** A;
+float** B;
+float** C;
+float** C_test;
 
 // function to initialise 3 global arrays with random.
 // void return type can be used since we're operating globally with pointers and hence do not need to return values
@@ -39,7 +39,6 @@ void init_arrays(int N, int M, int K) {
             gettimeofday(&epoch_time, NULL); // return time of day in milliseconds
             srand(epoch_time.tv_usec * epoch_time.tv_sec); // random floating-point between 0 and 1
             B[i][j] =  ((float)rand())/RAND_MAX;
-
         }
     }
     // init C
@@ -96,11 +95,11 @@ void* mat_mult_thrds(void* workers_meta_arg) {
     float** A = workers_meta->worker_A;
     float** B = workers_meta->worker_B;
     int M = workers_meta->M;
-    // locality of reference cache optimisation
+    // locality of reference optimisation
     for (int i = workers_meta->start; i < workers_meta->finish + 1; i++) {
-            for (int k = 0; k < K; k++) {
-                for (int j = 0; j < M; j++) {
-                    C[i][j] += A[i][k] * B[k][j];
+        for (int k = 0; k < K; k++) {
+            for (int j = 0; j < M; j++) {
+                C[j][i] += A[j][k] * B[k][i];
             }
         }
     }
@@ -110,6 +109,7 @@ void* mat_mult_thrds(void* workers_meta_arg) {
 void* thread_pool_allocate(void* arrays_arg) {
     arrays_struct* arrays = (arrays_struct *) arrays_arg;
     int threads = arrays->threads;
+
     // create threads amount of pthreads
     pthread_t worker_threads[threads];
     worker_meta_data worker_meta[threads];
@@ -188,16 +188,10 @@ void matrix_multiplication() {
     arrays.B = B_struct;
     arrays.threads = threads;
 
-    clock_t begin = clock();
-
     pthread_create(&boss_thread, NULL, thread_pool_allocate, &arrays);
     pthread_join(boss_thread, NULL);
 
-    clock_t end = clock();
-    double time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
-    printf("TIME SPENT: %f\n", time_spent);
     printf("\n Output Matrix C:\n");
-
     int same = 0;
     int not_same = 0;
     for (int m = 0; m < M; m++) {
